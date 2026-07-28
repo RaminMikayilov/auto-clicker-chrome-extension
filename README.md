@@ -59,11 +59,11 @@ auto-clicker/
 ├── test/
 │   └── fixtures/
 │       └── refresh-page.html   a button that really does reload the page
-├── tools/
-│   └── zip.js                  npm run zip → auto-clicker-<version>.zip
-├── package.json
 └── README.md
 ```
+
+No build step and no dependencies — the source in `src/` is exactly what the
+browser runs.
 
 ### How the three contexts share code
 
@@ -140,17 +140,6 @@ the fix, and fails subtly with it removed.
   to swallow the whole press sequence (`pointerdown`, `mousedown`, `pointerup`,
   `mouseup`, `auxclick`, then `click`), or the site receives your pick as a real
   click.
-
-## Packaging
-
-```
-npm run zip     # -> auto-clicker-<version>.zip, containing src/ at the root
-```
-
-`tools/zip.js` writes the archive itself rather than shelling out, because
-`Compress-Archive` and .NET Framework's `ZipFile` both emit Windows backslashes
-as entry names — out of spec, and rejected by some tooling. Output is
-byte-reproducible for identical input.
 
 ## Known limitation: `isTrusted`
 

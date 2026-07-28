@@ -1,9 +1,0 @@
-{
-  "name": "auto-clicker-extension",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Chrome/Edge MV3 extension that clicks a button every N seconds and survives the page reload each click causes.",
-  "scripts": {
-    "zip": "node tools/zip.js"
-  }
-}
