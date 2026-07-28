@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Auto Clicker</h1>
+      <span id="status" class="pill idle">idle</span>
+    </header>
+
+    <label for="selector">Button selector</label>
+    <div class="row">
+      <input id="selector" type="text" placeholder="#claim-button" spellcheck="false" />
+      <button id="pick" class="secondary" title="Click an element on the page">Pick</button>
+    </div>
+
+    <div class="grid">
+      <div>
+        <label for="interval">Interval (seconds)</label>
+        <input id="interval" type="number" min="1" max="3600" step="1" />
+      </div>
+      <div>
+        <label for="maxClicks">Max clicks</label>
+        <input id="maxClicks" type="number" min="0" max="100000" step="1" />
+      </div>
+    </div>
+    <p class="hint">Counted from each page load. Max clicks <code>0</code> means unlimited.</p>
+
+    <div class="row actions">
+      <button id="start" class="primary">Start</button>
+      <button id="stop" class="secondary" disabled>Stop</button>
+    </div>
+
+    <p id="message" class="message" hidden></p>
+
+    <footer id="footer" hidden>
+      <span id="counter">0 clicks</span>
+      <span id="target"></span>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
