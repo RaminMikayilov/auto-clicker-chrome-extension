@@ -2,18 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <title>Auto Clicker</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <header>
       <h1>Auto Clicker</h1>
-      <span id="status" class="pill idle">idle</span>
+      <span id="status" class="pill">idle</span>
     </header>
 
     <label for="selector">Button selector</label>
     <div class="row">
       <input id="selector" type="text" placeholder="#claim-button" spellcheck="false" />
-      <button id="pick" class="secondary" title="Click an element on the page">Pick</button>
+      <button id="pick" type="button" title="Click an element on the page">Pick</button>
     </div>
 
     <div class="grid">
@@ -29,8 +30,8 @@
     <p class="hint">Counted from each page load. Max clicks <code>0</code> means unlimited.</p>
 
     <div class="row actions">
-      <button id="start" class="primary">Start</button>
-      <button id="stop" class="secondary" disabled>Stop</button>
+      <button id="start" type="button" class="primary">Start</button>
+      <button id="stop" type="button" disabled>Stop</button>
     </div>
 
     <p id="message" class="message" hidden></p>
@@ -40,6 +41,7 @@
       <span id="target"></span>
     </footer>
 
+    <script src="../lib/constants.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Auto Clicker test — button that reloads the page</title>
+    <style>
+      body {
+        font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+        max-width: 620px;
+        margin: 60px auto;
+        padding: 0 20px;
+        color: #1c2128;
+      }
+      h1 { font-size: 20px; }
+      .count {
+        font: 700 44px/1 ui-monospace, Consolas, monospace;
+        margin: 20px 0;
+      }
+      #claim {
+        font: 600 15px/1 inherit;
+        padding: 12px 22px;
+        border: 0;
+        border-radius: 8px;
+        background: #1f6feb;
+        color: #fff;
+        cursor: pointer;
+      }
+      #claim:disabled { opacity: .5; cursor: default; }
+      p.note { color: #6b7280; font-size: 13px; }
+      code { background: #f6f8fa; padding: 1px 5px; border-radius: 4px; }
+      #log {
+        margin-top: 24px; padding: 10px; background: #f6f8fa;
+        border-radius: 6px; font: 12px/1.6 ui-monospace, Consolas, monospace;
+        white-space: pre-wrap; color: #57606a;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Auto Clicker test page</h1>
+    <p>
+      Clicking the button below triggers a real full page reload — the same
+      situation that kills a normal <code>setInterval</code> auto-clicker.
+    </p>
+
+    <div class="count"><span id="count">0</span> clicks</div>
+
+    <button id="claim" data-testid="claim-button">Claim reward</button>
+
+    <p class="note">
+      The button is deliberately disabled for 800&nbsp;ms after each load, to
+      verify the extension waits until the element is actually interactable.
+    </p>
+
+    <div id="log"></div>
+
+    <script>
+      const KEY = 'autoclicker-test-count';
+      const LOG = 'autoclicker-test-log';
+
+      // Reset with ?reset in the URL.
+      if (location.search.includes('reset')) {
+        sessionStorage.removeItem(KEY);
+        sessionStorage.removeItem(LOG);
+        location.replace(location.pathname);
+      }
+
+      const count = Number(sessionStorage.getItem(KEY) || 0);
+      document.getElementById('count').textContent = count;
+
+      const log = JSON.parse(sessionStorage.getItem(LOG) || '[]');
+      document.getElementById('log').textContent = log.length
+        ? log.map((t, i) => `#${i + 1}  ${t}`).join('\n')
+        : 'No clicks yet. Waiting…';
+
+      const btn = document.getElementById('claim');
+      btn.disabled = true;
+      setTimeout(() => { btn.disabled = false; }, 800);
+
+      btn.addEventListener('click', (e) => {
+        // Records whether the click arrived as a real or synthetic event.
+        log.push(new Date().toLocaleTimeString() + (e.isTrusted ? ' (trusted)' : ' (synthetic)'));
+        sessionStorage.setItem(KEY, String(count + 1));
+        sessionStorage.setItem(LOG, JSON.stringify(log.slice(-20)));
+        location.reload();
+      });
+    </script>
+  </body>
+</html>

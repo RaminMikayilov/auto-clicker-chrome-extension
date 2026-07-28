@@ -11,7 +11,7 @@ click *causes* a reload, a naive auto-clicker fires exactly once.
 This extension inverts the problem: **the reload is the loop iteration.**
 
 ```
-popup  ──message──▶  service worker  ──message──▶  content script
+popup  ──message──▶  service worker  ──message──▶  content scripts
 (UI)                 (state owner)                 (disposable, 1 cycle/load)
                           │
                           ▼
@@ -33,13 +33,66 @@ Two details that make it hold together:
   `sender.tab.id` off the message. A tab ID is stable across a self-reload,
   which is what makes "only the tab I started it in" work.
 
+## Layout
+
+`src/` is the extension root — that is the folder you load, and the only folder
+that ships. Tests and tooling live outside it.
+
+```
+auto-clicker/
+├── src/                        ← "Load unpacked" selects THIS
+│   ├── manifest.json
+│   ├── background/
+│   │   └── service-worker.js   owns all state, auto-stop guards
+│   ├── content/
+│   │   ├── badge.js            on-page status indicator  (ACBadge)
+│   │   ├── picker.js           hover-to-pick overlay     (ACPicker)
+│   │   └── auto-click.js       the click cycle + wiring   (entry point)
+│   ├── lib/
+│   │   ├── constants.js        message types, defaults, limits  (AC)
+│   │   └── selector.js         selector generation       (ACSelector)
+│   ├── popup/
+│   │   ├── popup.html
+│   │   ├── popup.css
+│   │   └── popup.js
+│   └── icons/
+├── test/
+│   └── fixtures/
+│       └── refresh-page.html   a button that really does reload the page
+├── tools/
+│   └── zip.js                  npm run zip → auto-clicker-<version>.zip
+├── package.json
+└── README.md
+```
+
+### How the three contexts share code
+
+MV3 content scripts can't use ES modules, so everything is a classic script that
+attaches one namespace to `globalThis`, wrapped in an idempotent IIFE. The same
+`lib/constants.js` file is therefore loaded three different ways:
+
+| Context | Mechanism |
+|---|---|
+| Service worker | `importScripts('/lib/constants.js')` |
+| Content scripts | first entry in the manifest's `js` array |
+| Popup | `<script src="../lib/constants.js">` |
+
+That's what lets message types live in exactly one place (`AC.MSG`) instead of
+being repeated as string literals in four files, where a typo is a silently
+ignored message rather than an error.
+
+Load order matters: `constants → selector → badge → picker → auto-click`. If you
+add or rename a content-script file, update it in **two** places — the manifest's
+`js` array and `CONTENT_SCRIPTS` in `service-worker.js`, which is the list used
+for on-demand injection into pages that predate the extension install.
+
 ## Install
 
 1. Open `chrome://extensions` (Edge: `edge://extensions`).
 2. Turn on **Developer mode**.
-3. **Load unpacked** → select this folder.
+3. **Load unpacked** → select the **`src`** folder.
 
-To test against `test/refresh-page.html` over `file://`, also open the
+To test against `test/fixtures/refresh-page.html` over `file://`, also open the
 extension's **Details** and enable **Allow access to file URLs**.
 
 ## Use
@@ -68,47 +121,48 @@ It stops on its own when:
 Run state lives in `chrome.storage.session`, so a browser restart always clears
 it — a stale tab ID would otherwise point at an unrelated tab.
 
+## Gotchas
+
+Four traps found the hard way. Each is load-bearing — the code looks fine without
+the fix, and fails subtly with it removed.
+
+- **Selector paths must be anchored.** A path like `div > div > button` can match
+  an identical branch elsewhere in the page, so the ancestor walk in
+  `buildSelector()` continues until it reaches `<body>`.
+- **A race that silently drops the final click.** `clearRun()` must not send
+  `STOP_CYCLE` when it fires from `WILL_CLICK` at the max-clicks boundary: the
+  message races the pending response and cancels the very click it just
+  authorised. That's what the `notify: false` argument is for.
+- **`all:initial` must come first.** On the badge and picker overlay it's a
+  shorthand for *every* property, so declaring it after `position:fixed` silently
+  resets the positioning.
+- **`preventDefault()` on `mousedown` does not stop the `click`.** The picker has
+  to swallow the whole press sequence (`pointerdown`, `mousedown`, `pointerup`,
+  `mouseup`, `auxclick`, then `click`), or the site receives your pick as a real
+  click.
+
+## Packaging
+
+```
+npm run zip     # -> auto-clicker-<version>.zip, containing src/ at the root
+```
+
+`tools/zip.js` writes the archive itself rather than shelling out, because
+`Compress-Archive` and .NET Framework's `ZipFile` both emit Windows backslashes
+as entry names — out of spec, and rejected by some tooling. Output is
+byte-reproducible for identical input.
+
 ## Known limitation: `isTrusted`
 
 Synthetic events carry `isTrusted: false`, and no content script can forge a
 trusted event. A site that checks `event.isTrusted` will ignore these clicks.
 
-`content.js` dispatches the full `pointerover → pointerdown → mousedown →
+`auto-click.js` dispatches the full `pointerover → pointerdown → mousedown →
 pointerup → mouseup → click` sequence rather than bare `el.click()`, which
 satisfies almost every framework — but not an explicit `isTrusted` check. If you
 hit that wall, the only real escape hatch is the `chrome.debugger` API
 (`Input.dispatchMouseEvent`), which produces genuinely trusted input at the cost
 of a persistent "debugging this browser" banner. Not implemented here.
-
-## Tests
-
-79 tests over the three pieces of real logic, run under jsdom with a stubbed
-`chrome` API:
-
-```
-npm install
-npm test
-```
-
-- `test/selector.test.js` (15) — selector generation: hashed/`useId` ids rejected,
-  CSS-in-JS and state classes dropped, escaping, identical siblings, deep
-  anonymous nesting.
-- `test/cycle.test.js` (20) — the click cycle: stays dormant in non-target tabs,
-  waits out the interval, waits for a `disabled` button to enable, waits for an
-  element injected after load, full event sequence reaches a real listener,
-  `WILL_CLICK` precedes the click, stop/pagehide cancellation, double-injection
-  safety.
-- `test/background.test.js` (44) — the state machine: click counting, every
-  auto-stop guard, cross-origin refusal, foreign-tab rejection.
-
-Two bugs these caught during development, both worth knowing about if you edit
-the code:
-
-- An unanchored selector path (`div > div > button`) can match an identical
-  branch elsewhere in the page — the ancestor walk must reach `<body>`.
-- `clearRun()` must **not** send `STOP_CYCLE` when it fires from `WILL_CLICK` at
-  the max-clicks boundary: the message races the pending response and cancels
-  the very click it just authorised.
 
 ## Notes
 
@@ -118,14 +172,6 @@ the code:
   content script survives and keeps looping in place. Both cases work.
 - Clicks are reported to the worker *before* dispatching, because navigation can
   kill the script before any post-click code runs. The count stays accurate.
-
-## Files
-
-| File | Role |
-|---|---|
-| `manifest.json` | MV3 manifest |
-| `background.js` | Service worker — owns all state, auto-stop guards |
-| `content.js` | One click cycle per page load, on-page badge, element picker |
-| `selector.js` | `buildSelector(el)` — unique, churn-resistant CSS selectors |
-| `popup.*` | Toolbar UI |
-| `test/refresh-page.html` | Local page whose button really does reload it |
+- `host_permissions` is `<all_urls>` so the picker works anywhere. To narrow it,
+  replace that with the specific origin in `src/manifest.json` — the content
+  scripts stay dormant everywhere except the target tab regardless.

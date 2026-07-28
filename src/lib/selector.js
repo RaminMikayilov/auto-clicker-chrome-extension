@@ -1,7 +1,9 @@
 // Generates a unique, reasonably stable CSS selector for an element.
-// Loaded before content.js, so it just defines a global on window.
+// Exposes globalThis.ACSelector for the content scripts loaded after it.
 
-(function () {
+(function (root) {
+  if (root.ACSelector) return;
+
   // Class names / ids that look machine-generated or state-dependent are
   // useless across reloads, so they get filtered out.
   const VOLATILE_PATTERNS = [
@@ -15,6 +17,10 @@
   const STATE_WORDS =
     /(^|[-_])(active|hover|focus|selected|open|closed|current|disabled|loading|hidden|visible|expanded)([-_]|$)/i;
 
+  // Attributes that tend to describe intent rather than presentation, so they
+  // survive restyling and class-name churn.
+  const STABLE_ATTRS = ['data-testid', 'data-test-id', 'data-qa', 'data-action', 'name', 'aria-label'];
+
   function isVolatile(token) {
     if (!token) return true;
     if (STATE_WORDS.test(token)) return true;
@@ -22,13 +28,22 @@
   }
 
   function cssEscape(value) {
-    if (window.CSS && typeof CSS.escape === 'function') return CSS.escape(value);
+    if (root.CSS && typeof root.CSS.escape === 'function') return root.CSS.escape(value);
     return String(value).replace(/([^\w-])/g, '\\$1');
   }
 
-  function isUnique(selector, root) {
+  // Small wrapper so a bad token can't throw mid-join.
+  function escapeSafe(token) {
     try {
-      return root.querySelectorAll(selector).length === 1;
+      return cssEscape(token);
+    } catch {
+      return token;
+    }
+  }
+
+  function isUnique(selector, doc) {
+    try {
+      return doc.querySelectorAll(selector).length === 1;
     } catch {
       return false;
     }
@@ -38,14 +53,14 @@
     return Array.from(el.classList).filter((c) => !isVolatile(c));
   }
 
-  // Candidate selectors for a single element, cheapest/most stable first.
+  // Candidate selectors for a single element, most stable first.
   function candidatesFor(el) {
     const tag = el.tagName.toLowerCase();
     const out = [];
 
-    if (el.id && !isVolatile(el.id)) out.push(`#${cssEscape(el.id)}`);
+    if (el.id && !isVolatile(el.id)) out.push(`#${escapeSafe(el.id)}`);
 
-    for (const attr of ['data-testid', 'data-test-id', 'data-qa', 'data-action', 'name', 'aria-label']) {
+    for (const attr of STABLE_ATTRS) {
       const val = el.getAttribute(attr);
       if (val && !isVolatile(val) && val.length < 80) {
         out.push(`${tag}[${attr}="${val.replace(/"/g, '\\"')}"]`);
@@ -57,23 +72,14 @@
 
     const classes = stableClasses(el);
     if (classes.length) {
-      out.push(tag + classes.map((c) => `.${escapeClass(c)}`).join(''));
-      // Single most specific class alone is often enough and survives
-      // sibling class churn better than the full set.
-      out.push(`${tag}.${escapeClass(classes[0])}`);
+      out.push(tag + classes.map((c) => `.${escapeSafe(c)}`).join(''));
+      // The most specific class alone is often enough, and survives sibling
+      // class churn better than the full set.
+      out.push(`${tag}.${escapeSafe(classes[0])}`);
     }
 
     out.push(tag);
     return out;
-  }
-
-  // Small wrapper so a bad class token can't throw mid-join.
-  function escapeClass(c) {
-    try {
-      return cssEscape(c);
-    } catch {
-      return c;
-    }
   }
 
   function nthOfType(el) {
@@ -87,16 +93,15 @@
 
   /**
    * @param {Element} el
-   * @returns {string} a selector matching exactly `el` within its document,
-   *   or a best-effort path selector if uniqueness can't be reached.
+   * @returns {string} a selector matching exactly `el` within its document.
    */
   function buildSelector(el) {
     if (!el || el.nodeType !== 1) return '';
-    const root = el.ownerDocument || document;
+    const doc = el.ownerDocument || document;
 
     // 1. Try to identify the element on its own.
     for (const cand of candidatesFor(el)) {
-      if (isUnique(cand, root)) return cand;
+      if (isUnique(cand, doc)) return cand;
     }
 
     // 2. Otherwise prepend ancestors until the whole path is unique. Walk all
@@ -108,21 +113,21 @@
     while (node) {
       // An ancestor with a solid identity lets us stop early and keeps the
       // selector short, which matters for surviving DOM shuffles.
-      const anchor = candidatesFor(node).find((c) => isUnique(c, root));
+      const anchor = candidatesFor(node).find((c) => isUnique(c, doc));
       if (anchor) {
         const withAnchor = `${anchor} > ${path}`;
-        if (isUnique(withAnchor, root)) return withAnchor;
+        if (isUnique(withAnchor, doc)) return withAnchor;
         const loose = `${anchor} ${path}`;
-        if (isUnique(loose, root)) return loose;
+        if (isUnique(loose, doc)) return loose;
       }
 
-      if (node === root.body || node === root.documentElement) {
+      if (node === doc.body || node === doc.documentElement) {
         // Anchoring at the root makes the path absolute, hence unique.
         return `${node.tagName.toLowerCase()} > ${path}`;
       }
 
       path = `${nthOfType(node)} > ${path}`;
-      if (isUnique(path, root)) return path;
+      if (isUnique(path, doc)) return path;
 
       node = node.parentElement;
     }
@@ -130,5 +135,5 @@
     return path;
   }
 
-  window.__autoClickerBuildSelector = buildSelector;
-})();
+  root.ACSelector = { buildSelector };
+})(typeof globalThis !== 'undefined' ? globalThis : self);
